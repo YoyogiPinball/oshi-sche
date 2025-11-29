@@ -193,13 +193,13 @@ function processNewImages() {
 
   while (subFolders.hasNext()) {
     const subFolder = subFolders.next();
-    const folderName = subFolder.getName(); // 例: 「個人勢：白雪みしろ」
+    const folderName = subFolder.getName(); // 例: 「個人勢：星野ひかり」
 
     // フォルダ名をパース（全角コロン「：」で分割）
     // 理由: 「所属：VTuber名」形式から、所属とVTuber名を抽出します
     const parts = folderName.split('：');
     const affiliation = parts[0] || '';      // 所属（例: 個人勢）
-    const vtuberName = parts[1] || folderName; // VTuber名（例: 白雪みしろ）
+    const vtuberName = parts[1] || folderName; // VTuber名（例: 星野ひかり）
 
     console.log(`フォルダ確認: ${affiliation} - ${vtuberName}`);
 
@@ -317,7 +317,7 @@ function processNewImages() {
  * サブフォルダが存在しない場合は自動的に作成します。
  *
  * @param {GoogleAppsScript.Drive.Folder} doneFolder 処理済みフォルダ
- * @param {string} folderName サブフォルダ名（例: 個人勢：白雪みしろ）
+ * @param {string} folderName サブフォルダ名（例: 個人勢：星野ひかり）
  * @returns {GoogleAppsScript.Drive.Folder} サブフォルダ
  */
 function getDoneSubFolder(doneFolder, folderName) {
@@ -738,20 +738,20 @@ function addSchedulesToCalendar(schedules, config) {
 // ================================================================================
 
 /**
- * 手動テスト用の関数
+ * メイン実行関数
  *
  * 使い方:
- * 1. GASエディタで「実行」→「testProcessImages」を選択
+ * 1. GASエディタで「実行」→「main」を選択
  * 2. 初回は権限の承認が求められるので、承認してください
  * 3. 実行ログで結果を確認
  *
  * 注意:
  * DRY_RUN="true"の間は、実際の書き込み・移動は行われません。
- * テストが完了したら、DRY_RUN="false"に変更してください。
+ * 本番実行する場合は、DRY_RUN="false"に変更してください。
  */
-function testProcessImages() {
+function main() {
   console.log('========================================');
-  console.log('手動テスト実行開始');
+  console.log('推しスケ実行開始');
   console.log('========================================');
 
   try {

@@ -1,0 +1,23 @@
+# 引き継ぎドキュメント（個人用メモ、コミット対象外）
+oshi-sche-handover.md
+migration-guide.md
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# エディタ
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ログファイル
+*.log
+
+# 一時ファイル
+*.tmp

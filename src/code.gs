@@ -12,6 +12,17 @@ const DRY_RUN_MODE = null;
 //
 // ================================================================================
 
+// ================================================================================
+// 定数定義
+// ================================================================================
+
+// Gemini API呼び出しのリトライ設定
+const MAX_API_RETRIES = 3;              // 最大リトライ回数
+const RETRY_WAIT_BASE_MS = 1000;        // リトライ時の基本待機時間（ミリ秒）
+
+// カレンダーイベントのデフォルト設定
+const DEFAULT_STREAM_DURATION_HOURS = 2; // 配信時間のデフォルト値（時間）
+
 /**
  * 推しスケ（Oshi-Sche）- VTuber配信スケジュール自動登録システム
  *
@@ -124,32 +135,28 @@ function getConfig() {
 // ================================================================================
 
 /**
- * メイン処理：フォルダを監視して新しい画像を処理
+ * 実行に必要なリソースを初期化
  *
- * 【処理フロー】
- * 1. 入力フォルダ内のサブフォルダを走査（所属：VTuber名 形式）
- * 2. 各サブフォルダ内の画像ファイルをチェック
- * 3. 未処理の画像をGeminiで解析
- * 4. スプレッドシート＆カレンダーに登録
- * 5. 処理済みフォルダに移動
+ * 【処理内容】
+ * 1. 設定を読み込み
+ * 2. ドライランモードの表示
+ * 3. 入力フォルダ・処理済みフォルダの取得
  *
- * 【トリガー設定推奨】
- * GASのトリガー設定で、この関数を定期実行（例: 1時間ごと）に設定してください。
- *
- * @returns {number} 処理したファイルの件数
+ * @returns {Object} {config, inputFolder, doneFolder}
+ * @throws {Error} 設定エラーまたはフォルダが見つからない場合
  */
-function processNewImages() {
-  // ドライランモードの判定
-  // まず設定を読み込んで、ドライランかどうかを確認します
-  let CONFIG;
+function initializeResources() {
+  // 設定を読み込む
+  let config;
   try {
-    CONFIG = getConfig();
+    config = getConfig();
   } catch (error) {
     console.error(error.message);
     throw error;
   }
 
-  if (CONFIG.DRY_RUN) {
+  // ドライランモードの表示
+  if (config.DRY_RUN) {
     console.log('========================================');
     console.log('【ドライランモード】');
     console.log('これはテスト実行です。');
@@ -162,24 +169,169 @@ function processNewImages() {
   //       try-catchでエラーを捕捉して分かりやすいメッセージを表示します
   let inputFolder, doneFolder;
   try {
-    inputFolder = DriveApp.getFolderById(CONFIG.INPUT_FOLDER_ID);
+    inputFolder = DriveApp.getFolderById(config.INPUT_FOLDER_ID);
   } catch (error) {
     throw new Error(
       `【エラー】入力フォルダが見つかりません。\n` +
-      `INPUT_FOLDER_ID: ${CONFIG.INPUT_FOLDER_ID}\n` +
+      `INPUT_FOLDER_ID: ${config.INPUT_FOLDER_ID}\n` +
       `フォルダIDが正しいか確認してください。`
     );
   }
 
   try {
-    doneFolder = DriveApp.getFolderById(CONFIG.DONE_FOLDER_ID);
+    doneFolder = DriveApp.getFolderById(config.DONE_FOLDER_ID);
   } catch (error) {
     throw new Error(
       `【エラー】処理済みフォルダが見つかりません。\n` +
-      `DONE_FOLDER_ID: ${CONFIG.DONE_FOLDER_ID}\n` +
+      `DONE_FOLDER_ID: ${config.DONE_FOLDER_ID}\n` +
       `フォルダIDが正しいか確認してください。`
     );
   }
+
+  return { config, inputFolder, doneFolder };
+}
+
+/**
+ * 単一ファイルの処理
+ *
+ * 【処理内容】
+ * 1. 画像ファイルかチェック
+ * 2. 重複チェック
+ * 3. Gemini APIで解析
+ * 4. スプレッドシート＆カレンダーに登録
+ * 5. 処理済みフォルダに移動
+ *
+ * @param {GoogleAppsScript.Drive.File} file ファイル
+ * @param {string} fileName ファイル名
+ * @param {string} mimeType MIMEタイプ
+ * @param {string} vtuberName VTuber名
+ * @param {string} affiliation 所属
+ * @param {Set<string>} doneFileNames 処理済みファイル名の集合
+ * @param {GoogleAppsScript.Drive.Folder} doneSubFolder 処理済みサブフォルダ
+ * @param {Object} config 設定オブジェクト
+ * @returns {string} 処理結果 ('success' | 'skipped' | 'error')
+ */
+function processSingleFile(file, fileName, mimeType, vtuberName, affiliation, doneFileNames, doneSubFolder, config) {
+  // 画像ファイルのみ処理
+  // 理由: PDFやテキストファイルなど、画像以外のファイルは
+  //       Geminiの画像解析APIでは処理できないため、スキップします
+  if (!mimeType.startsWith('image/')) {
+    console.log(`スキップ（画像以外）: ${fileName}`);
+    return 'skipped';
+  }
+
+  // 重複チェック
+  // 理由: 同じファイルが入力フォルダと処理済みフォルダの両方に
+  //       ある場合は、既に処理済みなので削除します
+  if (doneFileNames.has(fileName)) {
+    console.log(`削除（処理済み）: ${fileName}`);
+    if (!config.DRY_RUN) {
+      file.setTrashed(true);  // ゴミ箱に移動
+    }
+    return 'skipped';
+  }
+
+  console.log(`処理開始: ${vtuberName} - ${fileName}`);
+
+  try {
+    // 画像をGeminiで解析
+    // 引数として、VTuber名と所属を渡すことで、
+    // 解析結果に自動的にこれらの情報を含めます
+    const schedules = analyzeScheduleImage(file, vtuberName, affiliation);
+
+    if (schedules && schedules.length > 0) {
+      console.log(`${schedules.length}件のスケジュールを抽出しました`);
+
+      if (config.DRY_RUN) {
+        // ドライランモード: 結果を表示するだけ
+        console.log('【ドライラン】抽出されたスケジュール:');
+        schedules.forEach((s, i) => {
+          console.log(`  ${i + 1}. ${s.date} ${s.time} - ${s.content}`);
+        });
+      } else {
+        // 本番モード: 実際に書き込み
+        writeSchedulesToSheet(schedules, config);
+        console.log(`スプレッドシートに書き込みました`);
+
+        addSchedulesToCalendar(schedules, config);
+        console.log(`カレンダーに登録しました`);
+      }
+
+      // 処理済みサブフォルダに移動
+      // 理由: 同じファイルを何度も処理しないように、
+      //       処理が完了したら別フォルダに移動します
+      if (!config.DRY_RUN) {
+        file.moveTo(doneSubFolder);
+      }
+
+      return 'success';
+
+    } else {
+      console.log('スケジュールを抽出できませんでした');
+      return 'error';
+    }
+
+  } catch (error) {
+    // エラーが発生した場合は、そのファイルだけスキップして
+    // 他のファイルの処理は続行します
+    console.error(`エラー: ${fileName} - ${error.message}`);
+    return 'error';
+  }
+}
+
+/**
+ * 処理結果のサマリーを表示
+ *
+ * 【表示内容】
+ * - 成功件数
+ * - スキップ件数
+ * - エラー件数
+ * - ドライランモードの注意書き（該当する場合）
+ *
+ * @param {number} processedCount 成功件数
+ * @param {number} skippedCount スキップ件数
+ * @param {number} errorCount エラー件数
+ * @param {boolean} isDryRun ドライランモードかどうか
+ */
+function printProcessingSummary(processedCount, skippedCount, errorCount, isDryRun) {
+  console.log('========================================');
+  console.log(`処理完了サマリー:`);
+  console.log(`  成功: ${processedCount}件`);
+  console.log(`  スキップ: ${skippedCount}件`);
+  console.log(`  エラー: ${errorCount}件`);
+
+  if (isDryRun) {
+    console.log('');
+    console.log('【ドライランモード】実際の書き込みは行われていません。');
+    console.log('本番実行する場合は、DRY_RUNプロパティを"false"に設定してください。');
+  }
+
+  console.log('========================================');
+}
+
+/**
+ * メイン処理：フォルダを監視して新しい画像を処理
+ *
+ * 【処理フロー】
+ * 1. 入力フォルダ内のサブフォルダを走査（所属：VTuber名 形式）
+ * 2. 各サブフォルダ内の画像ファイルをチェック
+ * 3. 未処理の画像をGeminiで解析
+ * 4. スプレッドシート＆カレンダーに登録
+ * 5. 処理済みフォルダに移動
+ *
+ * 【トリガー設定推奨】
+ * GASのトリガー設定で、この関数を定期実行（例: 1時間ごと）に設定してください。
+ *
+ * 【使い方】
+ * 1. GASエディタで「実行」→「main」を選択
+ * 2. 初回は権限の承認が求められるので、承認してください
+ * 3. 実行ログで結果を確認
+ *
+ * @returns {number} 処理したファイルの件数
+ */
+function main() {
+  // 実行に必要なリソースを初期化
+  const { config: CONFIG, inputFolder, doneFolder } = initializeResources();
 
   // 処理件数のカウンター
   let processedCount = 0;  // 正常に処理できた件数
@@ -220,86 +372,25 @@ function processNewImages() {
       const fileName = file.getName();
       const mimeType = file.getMimeType();
 
-      // 画像ファイルのみ処理
-      // 理由: PDFやテキストファイルなど、画像以外のファイルは
-      //       Geminiの画像解析APIでは処理できないため、スキップします
-      if (!mimeType.startsWith('image/')) {
-        console.log(`スキップ（画像以外）: ${fileName}`);
-        continue;
-      }
+      // 単一ファイルを処理
+      const result = processSingleFile(
+        file, fileName, mimeType, vtuberName, affiliation,
+        doneFileNames, doneSubFolder, CONFIG
+      );
 
-      // 重複チェック
-      // 理由: 同じファイルが入力フォルダと処理済みフォルダの両方に
-      //       ある場合は、既に処理済みなので削除します
-      if (doneFileNames.has(fileName)) {
-        console.log(`削除（処理済み）: ${fileName}`);
-        if (!CONFIG.DRY_RUN) {
-          file.setTrashed(true);  // ゴミ箱に移動
-        }
+      // 処理結果に応じてカウンターを更新
+      if (result === 'success') {
+        processedCount++;
+      } else if (result === 'skipped') {
         skippedCount++;
-        continue;
-      }
-
-      console.log(`処理開始: ${vtuberName} - ${fileName}`);
-
-      try {
-        // 画像をGeminiで解析
-        // 引数として、VTuber名と所属を渡すことで、
-        // 解析結果に自動的にこれらの情報を含めます
-        const schedules = analyzeScheduleImage(file, vtuberName, affiliation);
-
-        if (schedules && schedules.length > 0) {
-          console.log(`${schedules.length}件のスケジュールを抽出しました`);
-
-          if (CONFIG.DRY_RUN) {
-            // ドライランモード: 結果を表示するだけ
-            console.log('【ドライラン】抽出されたスケジュール:');
-            schedules.forEach((s, i) => {
-              console.log(`  ${i + 1}. ${s.date} ${s.time} - ${s.content}`);
-            });
-          } else {
-            // 本番モード: 実際に書き込み
-            writeSchedulesToSheet(schedules, CONFIG);
-            console.log(`スプレッドシートに書き込みました`);
-
-            addSchedulesToCalendar(schedules, CONFIG);
-            console.log(`カレンダーに登録しました`);
-          }
-
-          // 処理済みサブフォルダに移動
-          // 理由: 同じファイルを何度も処理しないように、
-          //       処理が完了したら別フォルダに移動します
-          if (!CONFIG.DRY_RUN) {
-            file.moveTo(doneSubFolder);
-          }
-          processedCount++;
-
-        } else {
-          console.log('スケジュールを抽出できませんでした');
-          errorCount++;
-        }
-
-      } catch (error) {
-        // エラーが発生した場合は、そのファイルだけスキップして
-        // 他のファイルの処理は続行します
-        console.error(`エラー: ${fileName} - ${error.message}`);
+      } else if (result === 'error') {
         errorCount++;
       }
     }
   }
 
   // 処理結果のサマリーを表示
-  console.log('========================================');
-  console.log(`処理完了サマリー:`);
-  console.log(`  成功: ${processedCount}件`);
-  console.log(`  スキップ: ${skippedCount}件`);
-  console.log(`  エラー: ${errorCount}件`);
-  if (CONFIG.DRY_RUN) {
-    console.log('');
-    console.log('【ドライランモード】実際の書き込みは行われていません。');
-    console.log('本番実行する場合は、DRY_RUNプロパティを"false"に設定してください。');
-  }
-  console.log('========================================');
+  printProcessingSummary(processedCount, skippedCount, errorCount, CONFIG.DRY_RUN);
 
   return processedCount;
 }
@@ -462,22 +553,21 @@ function analyzeScheduleImage(file, vtuberName, affiliation) {
 
   // リトライ機能付きAPI呼び出し
   // 理由: ネットワークエラーや一時的なAPI障害に対応するため、
-  //       最大3回までリトライします
+  //       最大MAX_API_RETRIES回までリトライします
   let response;
   let lastError;
-  const maxRetries = 3;
 
-  for (let retry = 0; retry < maxRetries; retry++) {
+  for (let retry = 0; retry < MAX_API_RETRIES; retry++) {
     try {
       response = UrlFetchApp.fetch(url, options);
       break;  // 成功したらループを抜ける
     } catch (error) {
       lastError = error;
-      console.warn(`API呼び出し失敗 (${retry + 1}/${maxRetries}): ${error.message}`);
+      console.warn(`API呼び出し失敗 (${retry + 1}/${MAX_API_RETRIES}): ${error.message}`);
 
       // 最後のリトライでなければ、少し待ってから再試行
-      if (retry < maxRetries - 1) {
-        Utilities.sleep(1000 * (retry + 1));  // 1秒、2秒、3秒と待機時間を増やす
+      if (retry < MAX_API_RETRIES - 1) {
+        Utilities.sleep(RETRY_WAIT_BASE_MS * (retry + 1));  // 1秒、2秒、3秒と待機時間を増やす
       }
     }
   }
@@ -690,9 +780,9 @@ function addSchedulesToCalendar(schedules, config) {
 
       // 開始時刻と終了時刻を作成
       // 理由: Googleカレンダーのイベントには開始・終了時刻が必要なため、
-      //       終了時刻は開始2時間後に設定します（配信の平均的な長さ）
+      //       終了時刻は開始DEFAULT_STREAM_DURATION_HOURS時間後に設定します（配信の平均的な長さ）
       const startTime = new Date(year, month, day, hour, minute);
-      const endTime = new Date(year, month, day, hour + 2, minute); // 2時間枠
+      const endTime = new Date(year, month, day, hour + DEFAULT_STREAM_DURATION_HOURS, minute);
 
       // イベントタイトル
       const title = `【${s.vtuber}】${s.content}`;
@@ -733,33 +823,3 @@ function addSchedulesToCalendar(schedules, config) {
   console.log(`カレンダー登録完了: ${addedCount}件追加しました`);
 }
 
-// ================================================================================
-// テスト用関数
-// ================================================================================
-
-/**
- * メイン実行関数
- *
- * 使い方:
- * 1. GASエディタで「実行」→「main」を選択
- * 2. 初回は権限の承認が求められるので、承認してください
- * 3. 実行ログで結果を確認
- *
- * 注意:
- * DRY_RUN="true"の間は、実際の書き込み・移動は行われません。
- * 本番実行する場合は、DRY_RUN="false"に変更してください。
- */
-function main() {
-  console.log('========================================');
-  console.log('推しスケ実行開始');
-  console.log('========================================');
-
-  try {
-    const count = processNewImages();
-    console.log(`テスト完了: ${count}件処理しました`);
-  } catch (error) {
-    console.error('テスト実行中にエラーが発生しました:');
-    console.error(error.message);
-    console.error(error.stack);
-  }
-}

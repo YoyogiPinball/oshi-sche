@@ -494,15 +494,38 @@ function analyzeScheduleImage(file, vtuberName, affiliation) {
   // レスポンスをパース
   const result = JSON.parse(response.getContentText());
 
-  // APIエラーのチェック（クォータエラー時のメッセージ改善）
+  // APIエラーのチェック（エラーコード別の詳細メッセージ）
   if (result.error) {
-    const isQuotaError = result.error.code === 429;
+    const errorCode = result.error.code;
+    let errorDetail = '';
+
+    switch (errorCode) {
+      case 400:
+        errorDetail = 'リクエストの形式が不正です。画像データが破損している可能性があります。';
+        break;
+      case 401:
+        errorDetail = 'APIキーが無効です。GEMINI_API_KEYを確認してください。';
+        break;
+      case 403:
+        errorDetail = 'APIへのアクセスが拒否されました。APIキーの権限を確認してください。';
+        break;
+      case 429:
+        errorDetail = '無料枠の上限に達しました。次回のトリガー実行時に自動リトライされます。';
+        break;
+      case 500:
+        errorDetail = 'Gemini APIの内部エラーです。しばらく待ってから再試行してください。';
+        break;
+      case 503:
+        errorDetail = 'Gemini APIが一時的に利用できません。しばらく待ってから再試行してください。';
+        break;
+      default:
+        errorDetail = 'APIキーや利用上限を確認してください。';
+    }
+
     throw new Error(
       `【Gemini APIエラー】${result.error.message}\n` +
-      `エラーコード: ${result.error.code || '不明'}\n` +
-      (isQuotaError
-        ? `無料枠の上限に達しました。次回のトリガー実行時に自動リトライされます。`
-        : `APIキーや利用上限を確認してください。`)
+      `エラーコード: ${errorCode || '不明'}\n` +
+      `対処方法: ${errorDetail}`
     );
   }
 

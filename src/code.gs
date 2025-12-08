@@ -21,7 +21,7 @@ const DRY_RUN_MODE = null;
  *
  * 【主な機能】
  * 1. Driveフォルダの監視（サブフォルダ単位：所属：VTuber名）
- * 2. Gemini 2.0 Flashによる画像解析
+ * 2. Gemini 2.5 Flashによる画像解析
  * 3. スプレッドシートへのスケジュール書き込み
  * 4. Googleカレンダーへの予定登録
  * 5. 処理済み画像の自動移動
@@ -477,8 +477,8 @@ function analyzeScheduleImage(file, vtuberName, affiliation) {
 - 配信がない日（休み、OFFなど）も含めてください
 - JSON以外の文字は出力しないでください`;
 
-  // Gemini APIのエンドポイント
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  // Gemini APIのエンドポイント（2.5-flashに変更）
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
   // リクエストペイロード（送信するデータ）
   const payload = {
@@ -550,12 +550,38 @@ function analyzeScheduleImage(file, vtuberName, affiliation) {
 
   const result = JSON.parse(responseText);
 
-  // APIエラーのチェック
+  // APIエラーのチェック（エラーコード別の詳細メッセージ）
   if (result.error) {
+    const errorCode = result.error.code;
+    let errorDetail = '';
+
+    switch (errorCode) {
+      case 400:
+        errorDetail = 'リクエストの形式が不正です。画像データが破損している可能性があります。';
+        break;
+      case 401:
+        errorDetail = 'APIキーが無効です。GEMINI_API_KEYを確認してください。';
+        break;
+      case 403:
+        errorDetail = 'APIへのアクセスが拒否されました。APIキーの権限を確認してください。';
+        break;
+      case 429:
+        errorDetail = '無料枠の上限に達しました。次回のトリガー実行時に自動リトライされます。';
+        break;
+      case 500:
+        errorDetail = 'Gemini APIの内部エラーです。しばらく待ってから再試行してください。';
+        break;
+      case 503:
+        errorDetail = 'Gemini APIが一時的に利用できません。しばらく待ってから再試行してください。';
+        break;
+      default:
+        errorDetail = 'APIキーや利用上限を確認してください。';
+    }
+
     throw new Error(
       `【Gemini APIエラー】${result.error.message}\n` +
-      `エラーコード: ${result.error.code || '不明'}\n` +
-      `APIキーや利用上限を確認してください。`
+      `エラーコード: ${errorCode || '不明'}\n` +
+      `対処方法: ${errorDetail}`
     );
   }
 

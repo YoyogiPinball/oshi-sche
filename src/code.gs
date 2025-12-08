@@ -193,13 +193,8 @@ function processNewImages() {
 
   while (subFolders.hasNext()) {
     const subFolder = subFolders.next();
-    const folderName = subFolder.getName(); // 例: 「個人勢：星野ひかり」
-
-    // フォルダ名をパース（全角コロン「：」で分割）
-    // 理由: 「所属：VTuber名」形式から、所属とVTuber名を抽出します
-    const parts = folderName.split('：');
-    const affiliation = parts[0] || '';      // 所属（例: 個人勢）
-    const vtuberName = parts[1] || folderName; // VTuber名（例: 星野ひかり）
+    const folderName = subFolder.getName(); // 例: 「個人勢：架空ほたる」
+    const { affiliation, vtuberName } = parseFolderInfo(folderName);
 
     console.log(`フォルダ確認: ${affiliation} - ${vtuberName}`);
 
@@ -317,7 +312,7 @@ function processNewImages() {
  * サブフォルダが存在しない場合は自動的に作成します。
  *
  * @param {GoogleAppsScript.Drive.Folder} doneFolder 処理済みフォルダ
- * @param {string} folderName サブフォルダ名（例: 個人勢：星野ひかり）
+ * @param {string} folderName サブフォルダ名（例: 個人勢：架空ほたる）
  * @returns {GoogleAppsScript.Drive.Folder} サブフォルダ
  */
 function getDoneSubFolder(doneFolder, folderName) {
@@ -355,9 +350,57 @@ function getDoneFileNames(folder) {
   return fileNames;
 }
 
+/**
+ * フォルダ名から所属とVTuber名を抽出（区切り記号を柔軟に解釈）
+ *
+ * 許容する区切り文字例: 「：」「:」「/」「-」「・」「｜」など
+ * 例: "個人勢：架空ほたる" / "にじさんじ-夢乃かなで" / "ホロライブ/桜庭りの"
+ *
+ * @param {string} folderName フォルダ名
+ * @returns {{affiliation: string, vtuberName: string}} パース結果
+ */
+function parseFolderInfo(folderName) {
+  const normalize = (text) =>
+    text
+      .replace(/[：]/g, ':')
+      .replace(/[／]/g, '/')
+      .replace(/[－ー―‐–—]/g, '-')
+      .replace(/[｜]/g, '|')
+      .replace(/[・]/g, ':')
+      .replace(/[　]/g, ' ')
+      .trim();
+
+  const normalized = normalize(folderName);
+  const unifiedSeparators = normalized.replace(/[:\/-|]+/g, ':');
+  const parts = unifiedSeparators
+    .split(':')
+    .map(p => p.trim())
+    .filter(Boolean);
+
+  if (parts.length >= 2) {
+    return {
+      affiliation: parts[0],
+      vtuberName: parts.slice(1).join('：') // 元の意図を維持するため連結
+    };
+  }
+
+  // パースできない場合はVTuber名のみ扱い、所属は空欄
+  return { affiliation: '', vtuberName: folderName.trim() || folderName };
+}
+
 // ================================================================================
 // Gemini API連携
 // ================================================================================
+
+const HTTP_STATUS_MESSAGES = {
+  400: 'リクエストが不正です。入力データやAPIキーを確認してください。',
+  401: '認証に失敗しました。APIキーが無効の可能性があります。',
+  403: 'アクセスが拒否されました。APIキーの権限を確認してください。',
+  404: 'APIエンドポイントが見つかりません。URLを確認してください。',
+  429: 'リクエストが多すぎます。しばらく待ってから再試行してください。',
+  500: 'Geminiサーバーでエラーが発生しました。時間をおいて再試行してください。',
+  503: 'Geminiサービスが一時的に利用できません。しばらくしてから再試行してください。'
+};
 
 /**
  * Gemini APIで画像を解析してスケジュールを抽出
@@ -492,7 +535,20 @@ function analyzeScheduleImage(file, vtuberName, affiliation) {
   }
 
   // レスポンスをパース
-  const result = JSON.parse(response.getContentText());
+  const statusCode = response.getResponseCode();
+  const responseText = response.getContentText();
+
+  if (statusCode < 200 || statusCode >= 300) {
+    const statusMessage = HTTP_STATUS_MESSAGES[statusCode] || 'Gemini API呼び出しに失敗しました。時間をおいて再試行してください。';
+    const headers = response.getHeaders ? response.getHeaders() : {};
+    const requestId = headers['x-request-id'] || headers['X-Request-Id'];
+    const bodyPreview = responseText ? responseText.slice(0, 300) : '';
+
+    console.error(`Gemini APIエラー: ステータス=${statusCode}${requestId ? ` RequestID=${requestId}` : ''}${bodyPreview ? ` レスポンス抜粋=${bodyPreview}` : ''}`);
+    throw new Error(`【Gemini APIエラー】${statusMessage}`);
+  }
+
+  const result = JSON.parse(responseText);
 
   // APIエラーのチェック
   if (result.error) {

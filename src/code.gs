@@ -21,7 +21,7 @@ const DRY_RUN_MODE = null;
  *
  * 【主な機能】
  * 1. Driveフォルダの監視（サブフォルダ単位：所属：VTuber名）
- * 2. Gemini 2.0 Flashによる画像解析
+ * 2. Gemini 2.5 Flashによる画像解析
  * 3. スプレッドシートへのスケジュール書き込み
  * 4. Googleカレンダーへの予定登録
  * 5. 処理済み画像の自動移動
@@ -434,8 +434,8 @@ function analyzeScheduleImage(file, vtuberName, affiliation) {
 - 配信がない日（休み、OFFなど）も含めてください
 - JSON以外の文字は出力しないでください`;
 
-  // Gemini APIのエンドポイント
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  // Gemini APIのエンドポイント（2.5-flashに変更）
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
   // リクエストペイロード（送信するデータ）
   const payload = {
@@ -494,12 +494,15 @@ function analyzeScheduleImage(file, vtuberName, affiliation) {
   // レスポンスをパース
   const result = JSON.parse(response.getContentText());
 
-  // APIエラーのチェック
+  // APIエラーのチェック（クォータエラー時のメッセージ改善）
   if (result.error) {
+    const isQuotaError = result.error.code === 429;
     throw new Error(
       `【Gemini APIエラー】${result.error.message}\n` +
       `エラーコード: ${result.error.code || '不明'}\n` +
-      `APIキーや利用上限を確認してください。`
+      (isQuotaError
+        ? `無料枠の上限に達しました。次回のトリガー実行時に自動リトライされます。`
+        : `APIキーや利用上限を確認してください。`)
     );
   }
 

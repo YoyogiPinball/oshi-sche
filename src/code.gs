@@ -116,6 +116,30 @@ function getConfig() {
     config.DRY_RUN = config.DRY_RUN === 'true';
   }
 
+  // テストモード対応（B-1案）
+  const testModeValue = props.getProperty('TEST_MODE');
+  config.TEST_MODE = testModeValue === 'true';
+
+  // テストモード時は専用のリソースIDを使用
+  if (config.TEST_MODE) {
+    const testKeys = [
+      'TEST_INPUT_FOLDER_ID',
+      'TEST_DONE_FOLDER_ID',
+      'TEST_SPREADSHEET_ID',
+      'TEST_CALENDAR_ID',
+      'TEST_DISCORD_WEBHOOK_URL'
+    ];
+
+    for (const key of testKeys) {
+      const value = props.getProperty(key);
+      if (value) {
+        // TEST_プレフィックスを削除した名前で設定を上書き
+        const configKey = key.replace('TEST_', '');
+        config[configKey] = value;
+      }
+    }
+  }
+
   // 細分化されたドライランフラグ
   // 未設定の場合はDRY_RUNの値を使用
   const dryRunFlags = [
@@ -140,6 +164,81 @@ function getConfig() {
 }
 
 // ================================================================================
+// 統一dry-run管理機能（A案）
+// ================================================================================
+
+/**
+ * 指定されたアクションを実行すべきかどうかを判定する
+ *
+ * @param {string} actionType - アクションタイプ ('SPREADSHEET', 'CALENDAR', 'DISCORD', 'FILE_MOVE')
+ * @param {Object} config - 設定オブジェクト
+ * @returns {boolean} 実行すべきならtrue、スキップすべきならfalse
+ */
+function shouldExecute(actionType, config) {
+  const flagName = `DRY_RUN_${actionType}`;
+  const shouldSkip = config[flagName];
+
+  if (shouldSkip) {
+    console.log(`【ドライラン】${getActionLabel(actionType)}はスキップされました`);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * アクションタイプに対応する日本語ラベルを取得
+ *
+ * @param {string} actionType - アクションタイプ
+ * @returns {string} 日本語ラベル
+ */
+function getActionLabel(actionType) {
+  const labels = {
+    'SPREADSHEET': 'スプレッドシート書き込み',
+    'CALENDAR': 'カレンダー登録',
+    'DISCORD': 'Discord通知',
+    'FILE_MOVE': 'ファイル移動'
+  };
+  return labels[actionType] || actionType;
+}
+
+/**
+ * ドライランモードのサマリーを表示
+ *
+ * @param {Object} config - 設定オブジェクト
+ */
+function showDryRunSummary(config) {
+  console.log('========================================');
+
+  if (config.TEST_MODE) {
+    console.log('【テストモード】');
+    console.log('テスト環境で実行しています。');
+  }
+
+  if (config.DRY_RUN) {
+    console.log('【ドライランモード】');
+    console.log('これはテスト実行です。');
+    console.log('実際の書き込み・移動は行われません。');
+  }
+
+  // 細分化フラグの状態を表示
+  const flags = [
+    { key: 'DRY_RUN_SPREADSHEET', label: 'スプレッドシート' },
+    { key: 'DRY_RUN_CALENDAR', label: 'カレンダー' },
+    { key: 'DRY_RUN_DISCORD', label: 'Discord通知' },
+    { key: 'DRY_RUN_FILE_MOVE', label: 'ファイル移動' }
+  ];
+
+  console.log('\n実行状態:');
+  flags.forEach(flag => {
+    const status = config[flag.key] ? 'スキップ' : '実行';
+    console.log(`  ${flag.label}: ${status}`);
+  });
+
+  console.log('========================================');
+}
+
+// ================================================================================
 // メイン処理
 // ================================================================================
 
@@ -159,8 +258,7 @@ function getConfig() {
  * @returns {number} 処理したファイルの件数
  */
 function processNewImages() {
-  // ドライランモードの判定
-  // まず設定を読み込んで、ドライランかどうかを確認します
+  // 設定の読み込み
   let CONFIG;
   try {
     CONFIG = getConfig();
@@ -169,13 +267,8 @@ function processNewImages() {
     throw error;
   }
 
-  if (CONFIG.DRY_RUN) {
-    console.log('========================================');
-    console.log('【ドライランモード】');
-    console.log('これはテスト実行です。');
-    console.log('実際の書き込み・移動は行われません。');
-    console.log('========================================');
-  }
+  // ドライランモード・テストモードのサマリー表示
+  showDryRunSummary(CONFIG);
 
   // Driveフォルダの取得
   // 理由: DriveApp.getFolderByIdは、存在しないIDを渡すとエラーになるため、
@@ -248,10 +341,8 @@ function processNewImages() {
       //       ある場合は、既に処理済みなので削除します
       if (doneFileNames.has(fileName)) {
         console.log(`削除（処理済み）: ${fileName}`);
-        if (!CONFIG.DRY_RUN_FILE_MOVE) {
+        if (shouldExecute('FILE_MOVE', CONFIG)) {
           file.setTrashed(true);  // ゴミ箱に移動
-        } else {
-          console.log('【ドライラン】ファイル削除はスキップされました');
         }
         skippedCount++;
         continue;
@@ -269,11 +360,10 @@ function processNewImages() {
           console.log(`${schedules.length}件のスケジュールを抽出しました`);
 
           // スプレッドシートへの書き込み
-          if (!CONFIG.DRY_RUN_SPREADSHEET) {
+          if (shouldExecute('SPREADSHEET', CONFIG)) {
             writeSchedulesToSheet(schedules, CONFIG);
             console.log(`スプレッドシートに書き込みました`);
           } else {
-            console.log('【ドライラン】スプレッドシート書き込みはスキップされました');
             console.log('抽出されたスケジュール:');
             schedules.forEach((s, i) => {
               console.log(`  ${i + 1}. ${s.date} ${s.time} - ${s.content}`);
@@ -281,20 +371,16 @@ function processNewImages() {
           }
 
           // カレンダーへの登録
-          if (!CONFIG.DRY_RUN_CALENDAR) {
+          if (shouldExecute('CALENDAR', CONFIG)) {
             addSchedulesToCalendar(schedules, CONFIG);
             console.log(`カレンダーに登録しました`);
-          } else {
-            console.log('【ドライラン】カレンダー登録はスキップされました');
           }
 
           // 処理済みサブフォルダに移動
           // 理由: 同じファイルを何度も処理しないように、
           //       処理が完了したら別フォルダに移動します
-          if (!CONFIG.DRY_RUN_FILE_MOVE) {
+          if (shouldExecute('FILE_MOVE', CONFIG)) {
             file.moveTo(doneSubFolder);
-          } else {
-            console.log('【ドライラン】ファイル移動はスキップされました');
           }
           processedCount++;
 
@@ -1089,8 +1175,7 @@ function sendDailyScheduleToDiscord() {
   message += `※配信時間は変更される場合があります`;
 
   // Discordに送信
-  if (CONFIG.DRY_RUN_DISCORD) {
-    console.log('【ドライラン】Discord通知はスキップされました');
+  if (!shouldExecute('DISCORD', CONFIG)) {
     console.log('送信予定のメッセージ:');
     console.log(message);
     return;

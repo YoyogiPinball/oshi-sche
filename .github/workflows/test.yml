@@ -1,0 +1,88 @@
+name: Code Quality Check
+
+on:
+  pull_request:
+    branches: [ main, master ]
+  push:
+    branches: [ main, master ]
+
+jobs:
+  validate:
+    name: Validate GAS Code
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm install
+          npm install -g eslint
+
+      - name: Check file structure
+        run: |
+          echo "Checking required files..."
+          test -f src/code.gs || { echo "ERROR: src/code.gs not found"; exit 1; }
+          test -f src/test.gs || { echo "ERROR: src/test.gs not found"; exit 1; }
+          test -f src/testData.gs || { echo "ERROR: src/testData.gs not found"; exit 1; }
+          test -f .clasp.json || { echo "ERROR: .clasp.json not found"; exit 1; }
+          test -f appsscript.json || { echo "ERROR: appsscript.json not found"; exit 1; }
+          echo "✓ All required files exist"
+
+      - name: Validate JSON files
+        run: |
+          echo "Validating JSON files..."
+          node -e "JSON.parse(require('fs').readFileSync('.clasp.json'))" || { echo "ERROR: .clasp.json is invalid"; exit 1; }
+          node -e "JSON.parse(require('fs').readFileSync('appsscript.json'))" || { echo "ERROR: appsscript.json is invalid"; exit 1; }
+          echo "✓ JSON files are valid"
+
+      - name: Check JavaScript syntax
+        run: |
+          echo "Checking JavaScript syntax..."
+          for file in src/*.gs; do
+            echo "Checking $file..."
+            node --check "$file" || { echo "ERROR: Syntax error in $file"; exit 1; }
+          done
+          echo "✓ No syntax errors found"
+
+      - name: Check for common issues
+        run: |
+          echo "Checking for common issues..."
+
+          # Check for console.log in production code (excluding test files)
+          if grep -n "console\.log" src/code.gs | grep -v "ドライラン\|テスト" > /dev/null; then
+            echo "WARNING: Found console.log statements in production code"
+          fi
+
+          # Check for hardcoded API keys
+          if grep -n -i "api[_-]key.*=.*['\"].*['\"]" src/*.gs | grep -v "test-api-key\|YOUR_API_KEY\|GEMINI_API_KEY" > /dev/null; then
+            echo "ERROR: Possible hardcoded API key found"
+            exit 1
+          fi
+
+          # Check for TODO comments
+          TODO_COUNT=$(grep -n "TODO" src/code.gs | wc -l || echo "0")
+          echo "Found $TODO_COUNT TODO comments"
+
+          echo "✓ No critical issues found"
+
+      - name: Summary
+        run: |
+          echo "========================================="
+          echo "✓ Code quality check passed!"
+          echo "========================================="
+          echo "Files validated:"
+          echo "  - src/code.gs"
+          echo "  - src/test.gs"
+          echo "  - src/testData.gs"
+          echo "  - .clasp.json"
+          echo "  - appsscript.json"
+          echo ""
+          echo "Ready for deployment with clasp!"

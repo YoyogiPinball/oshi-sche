@@ -33,6 +33,13 @@ Googleスプレッドシート＆Googleカレンダーに登録してくれる�
 
 ### 2025年12月版
 
+#### 開発インフラの整備（最新）
+- **clasp連携**: GitHub ⇄ GAS の直接同期が可能に（手動コピペ不要）
+- **テスト環境**: TEST_MODE フラグで本番とテスト環境を切り替え可能
+- **ユニットテスト**: test.gs でコードの品質を自動検証
+- **GitHub Actions**: PR時に自動で構文チェック・コード検証
+- **統一dry-run管理**: `shouldExecute()` 関数で一元管理、コードがシンプルに
+
 #### ドライランモードの細分化
 - **処理別制御**: スプレッドシート、カレンダー、Discord、ファイル移動を個別に制御
 - **柔軟なテスト**: 例えばDiscord通知だけドライランにすることが可能
@@ -145,6 +152,12 @@ Googleスプレッドシート＆Googleカレンダーに登録してくれる�
 | `DRY_RUN_CALENDAR` | カレンダー登録のドライラン | `true` または `false` | 未設定時は`DRY_RUN`の値 | ⚪ |
 | `DRY_RUN_DISCORD` | Discord通知のドライラン | `true` または `false` | 未設定時は`DRY_RUN`の値 | ⚪ |
 | `DRY_RUN_FILE_MOVE` | ファイル移動のドライラン | `true` または `false` | 未設定時は`DRY_RUN`の値 | ⚪ |
+| `TEST_MODE` | テスト環境モード | `true` または `false` | `false` | ⚪ |
+| `TEST_INPUT_FOLDER_ID` | テスト用入力フォルダID | DriveのURL | テスト環境用 | ⚪ |
+| `TEST_DONE_FOLDER_ID` | テスト用処理済みフォルダID | DriveのURL | テスト環境用 | ⚪ |
+| `TEST_SPREADSHEET_ID` | テスト用スプレッドシートID | スプシのURL | テスト環境用 | ⚪ |
+| `TEST_CALENDAR_ID` | テスト用カレンダーID | カレンダー設定 | テスト環境用 | ⚪ |
+| `TEST_DISCORD_WEBHOOK_URL` | テスト用Discord Webhook URL | Discord設定 | テスト環境用 | ⚪ |
 
 > **重要**: 初回は必ず `DRY_RUN` を `true` に設定してテストしてください！
 >
@@ -420,6 +433,200 @@ DRY_RUN_DISCORD=true（Discord通知だけドライラン）
 **デフォルト動作：**
 - 個別フラグ未設定の場合は `DRY_RUN` の値を使用
 - すべて未設定の場合は `DRY_RUN=true`（ドライラン）
+
+---
+
+## 👨‍💻 開発者向けガイド
+
+### clasp を使った GitHub ⇄ GAS 連携
+
+**clasp** (Command Line Apps Script Projects) を使うと、手動コピペなしで GitHub と GAS を同期できます。
+
+#### セットアップ手順
+
+1. **Node.js と clasp をインストール**
+   ```bash
+   # Node.js がインストールされていることを確認
+   node --version
+
+   # clasp をグローバルインストール
+   npm install -g @google/clasp
+
+   # Google アカウントでログイン
+   clasp login
+   ```
+
+2. **プロジェクトをクローン**
+   ```bash
+   git clone https://github.com/YoyogiPinball/oshi-sche.git
+   cd oshi-sche
+   npm install
+   ```
+
+3. **GAS プロジェクトと連携**
+   ```bash
+   # 既存のGASプロジェクトがある場合
+   # .clasp.json にスクリプトIDを設定
+   # または新規作成
+   clasp create --type standalone --title "oshi-sche" --rootDir ./src
+   ```
+
+4. **コードをプッシュ**
+   ```bash
+   # GASにプッシュ
+   npm run push
+   # または
+   clasp push
+   ```
+
+5. **コードをプル**
+   ```bash
+   # GASから最新版を取得
+   npm run pull
+   # または
+   clasp pull
+   ```
+
+#### ワークフロー例
+
+```bash
+# ローカルでコード編集
+vim src/code.gs
+
+# GitHubにプッシュ
+git add .
+git commit -m "機能追加"
+git push origin main
+
+# GASにもプッシュ
+clasp push
+```
+
+---
+
+### テスト環境の利用
+
+本番環境とは別のリソース（フォルダ、スプシ、カレンダー）でテストできます。
+
+#### 設定方法
+
+1. **テスト用リソースを作成**
+   - テスト用のドライブフォルダ
+   - テスト用のスプレッドシート
+   - テスト用のカレンダー
+   - テスト用のDiscord Webhook（任意）
+
+2. **スクリプトプロパティに追加**
+   ```
+   TEST_MODE = true
+   TEST_INPUT_FOLDER_ID = (テスト用フォルダID)
+   TEST_DONE_FOLDER_ID = (テスト用完了フォルダID)
+   TEST_SPREADSHEET_ID = (テスト用スプシID)
+   TEST_CALENDAR_ID = (テスト用カレンダーID)
+   TEST_DISCORD_WEBHOOK_URL = (テスト用WebhookURL)
+   ```
+
+3. **テスト実行**
+   - `TEST_MODE=true` の間、本番リソースには一切触れません
+   - テストが完了したら `TEST_MODE=false` に戻す
+
+---
+
+### ユニットテストの実行
+
+**test.gs** に自動テストコードが含まれています。
+
+#### テストの実行方法
+
+1. **GASエディタでテストを実行**
+   - GASエディタを開く
+   - 関数リストから `runAllTests` を選択
+   - 「実行」をクリック
+
+2. **ログで結果を確認**
+   ```
+   ========================================
+   ユニットテスト開始
+   ========================================
+
+   テスト実行: testShouldExecute
+   ✓ testShouldExecute - 成功
+
+   テスト実行: testGetActionLabel
+   ✓ testGetActionLabel - 成功
+
+   ...
+
+   ========================================
+   テスト結果サマリー
+   ========================================
+   成功: 7/7
+   失敗: 0/7
+
+   🎉 すべてのテストが成功しました！
+   ```
+
+3. **個別テストの実行**
+   ```javascript
+   // GASエディタで実行
+   runSingleTest('testShouldExecute');
+   ```
+
+#### テストの追加
+
+`src/test.gs` に新しいテスト関数を追加し、`runAllTests()` の `tests` 配列に登録します。
+
+```javascript
+function testMyNewFeature() {
+  const result = myNewFeature();
+  assertEqual(result, expectedValue, 'My feature should work');
+}
+
+function runAllTests() {
+  const tests = [
+    // ... 既存のテスト
+    testMyNewFeature  // 追加
+  ];
+  // ...
+}
+```
+
+---
+
+### GitHub Actions による自動チェック
+
+Pull Request を作成すると、自動でコードチェックが実行されます。
+
+#### チェック内容
+
+- ✅ ファイル構造の検証
+- ✅ JSON ファイルの構文チェック
+- ✅ JavaScript 構文チェック
+- ✅ ハードコードされた API キーの検出
+- ✅ TODO コメントのカウント
+
+#### ワークフロー
+
+1. **ブランチを作成**
+   ```bash
+   git checkout -b feature/new-feature
+   ```
+
+2. **コードを編集＆コミット**
+   ```bash
+   git add .
+   git commit -m "Add new feature"
+   git push origin feature/new-feature
+   ```
+
+3. **Pull Request を作成**
+   - GitHub で Pull Request を作成
+   - 自動的に GitHub Actions が実行される
+   - チェックが通れば緑のチェックマーク ✓
+
+4. **マージ**
+   - チェックが成功したらマージ
+   - 失敗した場合はエラーメッセージを確認して修正
 
 ---
 

@@ -1,0 +1,19 @@
+{
+  "name": "oshi-sche",
+  "version": "1.0.0",
+  "description": "VTuber Schedule Management System with Gemini API",
+  "scripts": {
+    "push": "clasp push",
+    "pull": "clasp pull",
+    "deploy": "clasp deploy",
+    "test": "echo 'Run tests in GAS environment'",
+    "login": "clasp login",
+    "setup": "clasp create --type standalone --title 'oshi-sche' --rootDir ./src"
+  },
+  "devDependencies": {
+    "@google/clasp": "^2.4.2",
+    "@types/google-apps-script": "^1.0.83"
+  },
+  "author": "",
+  "license": "MIT"
+}

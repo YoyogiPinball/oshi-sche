@@ -116,6 +116,26 @@ function getConfig() {
     config.DRY_RUN = config.DRY_RUN === 'true';
   }
 
+  // 細分化されたドライランフラグ
+  // 未設定の場合はDRY_RUNの値を使用
+  const dryRunFlags = [
+    'DRY_RUN_SPREADSHEET',  // スプレッドシート書き込み
+    'DRY_RUN_CALENDAR',     // カレンダー登録
+    'DRY_RUN_DISCORD',      // Discord通知
+    'DRY_RUN_FILE_MOVE'     // ファイル移動
+  ];
+
+  for (const flag of dryRunFlags) {
+    const value = props.getProperty(flag);
+    if (value !== null && value !== undefined && value !== '') {
+      // 個別フラグが設定されている場合はその値を使用
+      config[flag] = value === 'true';
+    } else {
+      // 未設定の場合はDRY_RUNの値を使用
+      config[flag] = config.DRY_RUN;
+    }
+  }
+
   return config;
 }
 
@@ -228,8 +248,10 @@ function processNewImages() {
       //       ある場合は、既に処理済みなので削除します
       if (doneFileNames.has(fileName)) {
         console.log(`削除（処理済み）: ${fileName}`);
-        if (!CONFIG.DRY_RUN) {
+        if (!CONFIG.DRY_RUN_FILE_MOVE) {
           file.setTrashed(true);  // ゴミ箱に移動
+        } else {
+          console.log('【ドライラン】ファイル削除はスキップされました');
         }
         skippedCount++;
         continue;
@@ -246,26 +268,33 @@ function processNewImages() {
         if (schedules && schedules.length > 0) {
           console.log(`${schedules.length}件のスケジュールを抽出しました`);
 
-          if (CONFIG.DRY_RUN) {
-            // ドライランモード: 結果を表示するだけ
-            console.log('【ドライラン】抽出されたスケジュール:');
+          // スプレッドシートへの書き込み
+          if (!CONFIG.DRY_RUN_SPREADSHEET) {
+            writeSchedulesToSheet(schedules, CONFIG);
+            console.log(`スプレッドシートに書き込みました`);
+          } else {
+            console.log('【ドライラン】スプレッドシート書き込みはスキップされました');
+            console.log('抽出されたスケジュール:');
             schedules.forEach((s, i) => {
               console.log(`  ${i + 1}. ${s.date} ${s.time} - ${s.content}`);
             });
-          } else {
-            // 本番モード: 実際に書き込み
-            writeSchedulesToSheet(schedules, CONFIG);
-            console.log(`スプレッドシートに書き込みました`);
+          }
 
+          // カレンダーへの登録
+          if (!CONFIG.DRY_RUN_CALENDAR) {
             addSchedulesToCalendar(schedules, CONFIG);
             console.log(`カレンダーに登録しました`);
+          } else {
+            console.log('【ドライラン】カレンダー登録はスキップされました');
           }
 
           // 処理済みサブフォルダに移動
           // 理由: 同じファイルを何度も処理しないように、
           //       処理が完了したら別フォルダに移動します
-          if (!CONFIG.DRY_RUN) {
+          if (!CONFIG.DRY_RUN_FILE_MOVE) {
             file.moveTo(doneSubFolder);
+          } else {
+            console.log('【ドライラン】ファイル移動はスキップされました');
           }
           processedCount++;
 
@@ -643,9 +672,8 @@ function analyzeScheduleImage(file, vtuberName, affiliation) {
  *
  * 【処理の流れ】
  * 1. スプレッドシートを開く
- * 2. 指定されたシート名のシートを取得（なければ作成）
- * 3. ヘッダー行がなければ追加
- * 4. スケジュールデータを最終行に追加
+ * 2. 全データ保管用シートに書き込み
+ * 3. VTuber別シート（所属：VTuber名）に今週分のみ書き込み
  *
  * @param {Array<Object>} schedules スケジュール配列
  * @param {Object} config 設定オブジェクト
@@ -664,28 +692,28 @@ function writeSchedulesToSheet(schedules, config) {
     );
   }
 
-  // シートを取得（なければ作成）
-  let sheet = ss.getSheetByName(config.SHEET_NAME);
+  // 現在時刻（登録日時として記録）
+  const now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
 
-  if (!sheet) {
+  // ================================================================================
+  // 1. 全データ保管用シート（既存の「スケジュール」シート）に書き込み
+  // ================================================================================
+  let mainSheet = ss.getSheetByName(config.SHEET_NAME);
+
+  if (!mainSheet) {
     // シートが存在しない場合は新規作成
-    sheet = ss.insertSheet(config.SHEET_NAME);
+    mainSheet = ss.insertSheet(config.SHEET_NAME);
 
     // ヘッダー行を設定
     const headers = ['VTuber名', '所属', '日付', '曜日', '時間', '内容', '備考', '登録日時'];
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');  // 太字
-    sheet.setFrozenRows(1);  // ヘッダー行を固定
+    mainSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    mainSheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');  // 太字
+    mainSheet.setFrozenRows(1);  // ヘッダー行を固定
 
     console.log(`新しいシート「${config.SHEET_NAME}」を作成しました`);
   }
 
-  // 現在時刻（登録日時として記録）
-  const now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
-
   // スケジュールデータを2次元配列に変換
-  // 理由: スプレッドシートのsetValues()は2次元配列を受け取るため、
-  //       オブジェクト配列を変換します
   const rows = schedules.map(s => [
     s.vtuber,
     s.affiliation,
@@ -698,10 +726,86 @@ function writeSchedulesToSheet(schedules, config) {
   ]);
 
   // 最終行の次の行から書き込み
-  const lastRow = sheet.getLastRow();
-  sheet.getRange(lastRow + 1, 1, rows.length, 8).setValues(rows);
+  const lastRow = mainSheet.getLastRow();
+  mainSheet.getRange(lastRow + 1, 1, rows.length, 8).setValues(rows);
 
-  console.log(`スプレッドシートに${rows.length}行を追加しました`);
+  console.log(`全データシートに${rows.length}行を追加しました`);
+
+  // ================================================================================
+  // 2. VTuber別シート（所属：VTuber名）に今週分のみ書き込み
+  // ================================================================================
+
+  // VTuber別にグループ化
+  const groupedByVtuber = {};
+  for (const s of schedules) {
+    const sheetName = `${s.affiliation}：${s.vtuber}`;
+    if (!groupedByVtuber[sheetName]) {
+      groupedByVtuber[sheetName] = [];
+    }
+    groupedByVtuber[sheetName].push(s);
+  }
+
+  // 今週の開始日（日曜日）を計算
+  const today = new Date();
+  const dayOfWeek = today.getDay(); // 0=日曜, 1=月曜, ..., 6=土曜
+  const weekStart = new Date(today);
+  weekStart.setDate(today.getDate() - dayOfWeek); // 今週の日曜日
+  weekStart.setHours(0, 0, 0, 0);
+
+  // 各VTuber用のシートに書き込み
+  for (const [sheetName, vtuberSchedules] of Object.entries(groupedByVtuber)) {
+    let vtuberSheet = ss.getSheetByName(sheetName);
+
+    // シートが存在しない場合は新規作成
+    if (!vtuberSheet) {
+      vtuberSheet = ss.insertSheet(sheetName);
+
+      // ヘッダー行を設定
+      const headers = ['日付', '曜日', '時間', '内容', '備考', '登録日時'];
+      vtuberSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      vtuberSheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');  // 太字
+      vtuberSheet.setFrozenRows(1);  // ヘッダー行を固定
+
+      console.log(`新しいVTuber別シート「${sheetName}」を作成しました`);
+    }
+
+    // 今週より前のデータを削除
+    if (vtuberSheet.getLastRow() > 1) {
+      const dataRange = vtuberSheet.getRange(2, 1, vtuberSheet.getLastRow() - 1, 6);
+      const values = dataRange.getValues();
+
+      // 削除する行を特定（下から削除）
+      for (let i = values.length - 1; i >= 0; i--) {
+        const dateStr = values[i][0]; // 日付列
+        if (dateStr) {
+          try {
+            const scheduleDate = new Date(dateStr);
+            if (scheduleDate < weekStart) {
+              // 今週より前のデータは削除
+              vtuberSheet.deleteRow(i + 2); // +2 はヘッダー行分
+            }
+          } catch (error) {
+            console.warn(`日付のパースに失敗: ${dateStr}`);
+          }
+        }
+      }
+    }
+
+    // 新しいスケジュールを追加
+    const vtuberRows = vtuberSchedules.map(s => [
+      s.date,
+      s.day,
+      s.time,
+      s.content,
+      s.note,
+      now
+    ]);
+
+    const lastVtuberRow = vtuberSheet.getLastRow();
+    vtuberSheet.getRange(lastVtuberRow + 1, 1, vtuberRows.length, 6).setValues(vtuberRows);
+
+    console.log(`VTuber別シート「${sheetName}」に${vtuberRows.length}行を追加しました`);
+  }
 }
 
 // ================================================================================
@@ -813,6 +917,209 @@ function addSchedulesToCalendar(schedules, config) {
   }
 
   console.log(`カレンダー登録完了: ${addedCount}件追加しました`);
+}
+
+// ================================================================================
+// Discord通知連携
+// ================================================================================
+
+/**
+ * 毎朝6時に今日・明日のスケジュールをDiscordに通知
+ *
+ * 【処理の流れ】
+ * 1. スプレッドシートから全データを取得
+ * 2. 今日・明日のスケジュールのみフィルタリング
+ * 3. VTuber別にグループ化
+ * 4. Discord用のテキストに整形
+ * 5. Webhook経由で送信
+ *
+ * 【セットアップ】
+ * - DISCORD_WEBHOOK_URL をスクリプトプロパティに設定
+ * - トリガー設定: 日タイマー 午前6時～7時
+ *
+ * @throws {Error} Discord送信失敗時
+ */
+function sendDailyScheduleToDiscord() {
+  // 設定を取得
+  const CONFIG = getConfig();
+
+  // Discord Webhook URLを取得
+  const webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+  if (!webhookUrl) {
+    console.warn('DISCORD_WEBHOOK_URLが設定されていません。Discord通知をスキップします。');
+    return;
+  }
+
+  // スプレッドシートを開く
+  let ss;
+  try {
+    ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  } catch (error) {
+    throw new Error(`スプレッドシートを開けませんでした: ${error.message}`);
+  }
+
+  const mainSheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  if (!mainSheet) {
+    console.log('スケジュールシートが見つかりません。通知をスキップします。');
+    return;
+  }
+
+  // 全データを取得
+  const lastRow = mainSheet.getLastRow();
+  if (lastRow <= 1) {
+    console.log('スケジュールデータがありません。通知をスキップします。');
+    return;
+  }
+
+  const dataRange = mainSheet.getRange(2, 1, lastRow - 1, 8);
+  const values = dataRange.getValues();
+
+  // 今日と明日の日付を計算
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+
+  const dayAfterTomorrow = new Date(today);
+  dayAfterTomorrow.setDate(today.getDate() + 2);
+
+  // 今日・明日のスケジュールをフィルタリング
+  const todaySchedules = [];
+  const tomorrowSchedules = [];
+
+  for (const row of values) {
+    const vtuber = row[0];
+    const affiliation = row[1];
+    const dateStr = row[2];
+    const day = row[3];
+    const time = row[4];
+    const content = row[5];
+    const note = row[6];
+
+    if (!dateStr || !time || time === '-') continue;
+
+    try {
+      const scheduleDate = new Date(dateStr);
+      scheduleDate.setHours(0, 0, 0, 0);
+
+      const schedule = {
+        vtuber: vtuber,
+        affiliation: affiliation,
+        date: dateStr,
+        day: day,
+        time: time,
+        content: content,
+        note: note
+      };
+
+      if (scheduleDate.getTime() === today.getTime()) {
+        todaySchedules.push(schedule);
+      } else if (scheduleDate.getTime() === tomorrow.getTime()) {
+        tomorrowSchedules.push(schedule);
+      }
+    } catch (error) {
+      console.warn(`日付のパースに失敗: ${dateStr}`);
+    }
+  }
+
+  // スケジュールがない場合は通知しない
+  if (todaySchedules.length === 0 && tomorrowSchedules.length === 0) {
+    console.log('本日・明日のスケジュールがありません。通知をスキップします。');
+    return;
+  }
+
+  // Discord用のメッセージを作成
+  const formatDate = (date) => {
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+    const dayOfWeek = dayNames[date.getDay()];
+    return `${month}/${day}（${dayOfWeek}）`;
+  };
+
+  const formatSchedulesByVtuber = (schedules) => {
+    const grouped = {};
+    for (const s of schedules) {
+      const key = `${s.affiliation}：${s.vtuber}`;
+      if (!grouped[key]) {
+        grouped[key] = [];
+      }
+      grouped[key].push(s);
+    }
+
+    const lines = [];
+    for (const [vtuberName, items] of Object.entries(grouped)) {
+      lines.push(`\n**${vtuberName}**`);
+      for (const item of items) {
+        const noteText = item.note ? ` ※${item.note}` : '';
+        lines.push(`・${item.time} - ${item.content}${noteText}`);
+      }
+    }
+
+    return lines.join('\n');
+  };
+
+  let message = `📅 **本日・明日の配信予定**（${formatDate(today)}）\n`;
+  message += `━━━━━━━━━━━━━━━━━━\n`;
+
+  // 今日のスケジュール
+  if (todaySchedules.length > 0) {
+    message += `**【本日 ${formatDate(today)}】**`;
+    message += formatSchedulesByVtuber(todaySchedules);
+    message += `\n\n`;
+  } else {
+    message += `**【本日 ${formatDate(today)}】**\n`;
+    message += `本日の配信予定はありません\n\n`;
+  }
+
+  message += `━━━━━━━━━━━━━━━━━━\n`;
+
+  // 明日のスケジュール
+  if (tomorrowSchedules.length > 0) {
+    message += `**【明日 ${formatDate(tomorrow)}】**`;
+    message += formatSchedulesByVtuber(tomorrowSchedules);
+    message += `\n\n`;
+  } else {
+    message += `**【明日 ${formatDate(tomorrow)}】**\n`;
+    message += `明日の配信予定はありません\n\n`;
+  }
+
+  message += `━━━━━━━━━━━━━━━━━━\n`;
+  message += `※配信時間は変更される場合があります`;
+
+  // Discordに送信
+  if (CONFIG.DRY_RUN_DISCORD) {
+    console.log('【ドライラン】Discord通知はスキップされました');
+    console.log('送信予定のメッセージ:');
+    console.log(message);
+    return;
+  }
+
+  const payload = {
+    content: message
+  };
+
+  const options = {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(webhookUrl, options);
+    const statusCode = response.getResponseCode();
+
+    if (statusCode === 204 || statusCode === 200) {
+      console.log('Discordへの通知が成功しました');
+    } else {
+      console.error(`Discord通知失敗: ${statusCode} - ${response.getContentText()}`);
+    }
+  } catch (error) {
+    console.error(`Discord通知エラー: ${error.message}`);
+    throw error;
+  }
 }
 
 // ================================================================================

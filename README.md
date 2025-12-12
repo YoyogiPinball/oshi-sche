@@ -34,6 +34,12 @@ Googleスプレッドシート＆Googleカレンダーに登録してくれる�
 
 ### 2025年12月版
 
+#### ドライランモードの細分化
+- **処理別制御**: スプレッドシート、カレンダー、Discord、ファイル移動を個別に制御
+- **柔軟なテスト**: 例えばDiscord通知だけドライランにすることが可能
+- **未設定時の挙動**: 個別フラグ未設定時は `DRY_RUN` の値を自動適用
+- **4つの個別フラグ**: `DRY_RUN_SPREADSHEET`, `DRY_RUN_CALENDAR`, `DRY_RUN_DISCORD`, `DRY_RUN_FILE_MOVE`
+
 #### 推しごとシート機能の追加
 - **VTuber別シート自動生成**: 「所属：VTuber名」形式でシートを自動作成
 - **今週分のみ表示**: 各VTuberのシートには今週のスケジュールのみ保持
@@ -129,9 +135,18 @@ Googleスプレッドシート＆Googleカレンダーに登録してくれる�
 | `SHEET_NAME` | シート名 | 任意 | `スケジュール` | ⚪ |
 | `CALENDAR_ID` | カレンダーID | カレンダー設定 | `xxxx@group.calendar.google.com` | ✅ |
 | `DISCORD_WEBHOOK_URL` | Discord Webhook URL | Discord設定 | `https://discord.com/api/webhooks/...` | ⚪ |
-| `DRY_RUN` | ドライランモード | `true` または `false` | `true` | ⚪ |
+| `DRY_RUN` | ドライランモード（全体） | `true` または `false` | `true` | ⚪ |
+| `DRY_RUN_SPREADSHEET` | スプレッドシート書き込みのドライラン | `true` または `false` | 未設定時は`DRY_RUN`の値 | ⚪ |
+| `DRY_RUN_CALENDAR` | カレンダー登録のドライラン | `true` または `false` | 未設定時は`DRY_RUN`の値 | ⚪ |
+| `DRY_RUN_DISCORD` | Discord通知のドライラン | `true` または `false` | 未設定時は`DRY_RUN`の値 | ⚪ |
+| `DRY_RUN_FILE_MOVE` | ファイル移動のドライラン | `true` または `false` | 未設定時は`DRY_RUN`の値 | ⚪ |
 
 > **重要**: 初回は必ず `DRY_RUN` を `true` に設定してテストしてください！
+>
+> **ドライランの細分化**: 個別の処理だけドライランにすることもできます。
+> - 例: `DRY_RUN=false`, `DRY_RUN_DISCORD=true` → Discord通知だけスキップ
+> - 未設定の場合は `DRY_RUN` の値が適用されます
+>
 > **Discord通知**: `DISCORD_WEBHOOK_URL` を設定すると毎朝6時に今日・明日のスケジュールが配信されます（任意）
 
 ---
@@ -377,6 +392,29 @@ Gemini AIの解析精度を上げるために、以下のような画像が適�
 **A**: 以下のいずれかの方法で停止できます：
 - トリガーを削除: GASエディタ → トリガー → 該当トリガーを削除
 - Webhook URLを削除: スクリプトプロパティから `DISCORD_WEBHOOK_URL` を削除
+- ドライラン設定: `DRY_RUN_DISCORD=true` でDiscord通知だけスキップ
+
+### Q: ドライランモードの細分化とは？
+
+**A**: 処理ごとに個別にドライランを設定できます：
+
+**使用例：**
+```
+DRY_RUN=false（本番モード）
+DRY_RUN_DISCORD=true（Discord通知だけドライラン）
+
+→ スプシ・カレンダー・ファイル移動は実行、Discordだけスキップ
+```
+
+**個別フラグ：**
+- `DRY_RUN_SPREADSHEET`: スプレッドシート書き込み
+- `DRY_RUN_CALENDAR`: カレンダー登録
+- `DRY_RUN_DISCORD`: Discord通知
+- `DRY_RUN_FILE_MOVE`: ファイル移動
+
+**デフォルト動作：**
+- 個別フラグ未設定の場合は `DRY_RUN` の値を使用
+- すべて未設定の場合は `DRY_RUN=true`（ドライラン）
 
 ---
 

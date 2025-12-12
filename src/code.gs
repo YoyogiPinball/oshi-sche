@@ -116,6 +116,26 @@ function getConfig() {
     config.DRY_RUN = config.DRY_RUN === 'true';
   }
 
+  // 細分化されたドライランフラグ
+  // 未設定の場合はDRY_RUNの値を使用
+  const dryRunFlags = [
+    'DRY_RUN_SPREADSHEET',  // スプレッドシート書き込み
+    'DRY_RUN_CALENDAR',     // カレンダー登録
+    'DRY_RUN_DISCORD',      // Discord通知
+    'DRY_RUN_FILE_MOVE'     // ファイル移動
+  ];
+
+  for (const flag of dryRunFlags) {
+    const value = props.getProperty(flag);
+    if (value !== null && value !== undefined && value !== '') {
+      // 個別フラグが設定されている場合はその値を使用
+      config[flag] = value === 'true';
+    } else {
+      // 未設定の場合はDRY_RUNの値を使用
+      config[flag] = config.DRY_RUN;
+    }
+  }
+
   return config;
 }
 
@@ -233,8 +253,10 @@ function processNewImages() {
       //       ある場合は、既に処理済みなので削除します
       if (doneFileNames.has(fileName)) {
         console.log(`削除（処理済み）: ${fileName}`);
-        if (!CONFIG.DRY_RUN) {
+        if (!CONFIG.DRY_RUN_FILE_MOVE) {
           file.setTrashed(true);  // ゴミ箱に移動
+        } else {
+          console.log('【ドライラン】ファイル削除はスキップされました');
         }
         skippedCount++;
         continue;
@@ -251,26 +273,33 @@ function processNewImages() {
         if (schedules && schedules.length > 0) {
           console.log(`${schedules.length}件のスケジュールを抽出しました`);
 
-          if (CONFIG.DRY_RUN) {
-            // ドライランモード: 結果を表示するだけ
-            console.log('【ドライラン】抽出されたスケジュール:');
+          // スプレッドシートへの書き込み
+          if (!CONFIG.DRY_RUN_SPREADSHEET) {
+            writeSchedulesToSheet(schedules, CONFIG);
+            console.log(`スプレッドシートに書き込みました`);
+          } else {
+            console.log('【ドライラン】スプレッドシート書き込みはスキップされました');
+            console.log('抽出されたスケジュール:');
             schedules.forEach((s, i) => {
               console.log(`  ${i + 1}. ${s.date} ${s.time} - ${s.content}`);
             });
-          } else {
-            // 本番モード: 実際に書き込み
-            writeSchedulesToSheet(schedules, CONFIG);
-            console.log(`スプレッドシートに書き込みました`);
+          }
 
+          // カレンダーへの登録
+          if (!CONFIG.DRY_RUN_CALENDAR) {
             addSchedulesToCalendar(schedules, CONFIG);
             console.log(`カレンダーに登録しました`);
+          } else {
+            console.log('【ドライラン】カレンダー登録はスキップされました');
           }
 
           // 処理済みサブフォルダに移動
           // 理由: 同じファイルを何度も処理しないように、
           //       処理が完了したら別フォルダに移動します
-          if (!CONFIG.DRY_RUN) {
+          if (!CONFIG.DRY_RUN_FILE_MOVE) {
             file.moveTo(doneSubFolder);
+          } else {
+            console.log('【ドライラン】ファイル移動はスキップされました');
           }
           processedCount++;
 
@@ -1004,6 +1033,13 @@ function sendDailyScheduleToDiscord() {
   message += `※配信時間は変更される場合があります`;
 
   // Discordに送信
+  if (CONFIG.DRY_RUN_DISCORD) {
+    console.log('【ドライラン】Discord通知はスキップされました');
+    console.log('送信予定のメッセージ:');
+    console.log(message);
+    return;
+  }
+
   const payload = {
     content: message
   };

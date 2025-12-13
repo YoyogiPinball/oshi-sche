@@ -831,11 +831,13 @@ function writeSchedulesToSheet(schedules, config) {
     groupedByVtuber[sheetName].push(s);
   }
 
-  // 今週の開始日（日曜日）を計算
+  // 今週の開始日（月曜日）を計算
   const today = new Date();
   const dayOfWeek = today.getDay(); // 0=日曜, 1=月曜, ..., 6=土曜
   const weekStart = new Date(today);
-  weekStart.setDate(today.getDate() - dayOfWeek); // 今週の日曜日
+  // 月曜日を週の始まりにする（日曜日の場合は前週の月曜日）
+  const daysFromMonday = (dayOfWeek === 0) ? 6 : dayOfWeek - 1;
+  weekStart.setDate(today.getDate() - daysFromMonday);
   weekStart.setHours(0, 0, 0, 0);
 
   // 各VTuber用のシートに書き込み

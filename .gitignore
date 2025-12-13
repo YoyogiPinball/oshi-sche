@@ -2,6 +2,9 @@
 oshi-sche-handover.md
 migration-guide.md
 
+# Claude設定（ローカルのみ、コミット対象外）
+.claude/
+
 # clasp
 .clasprc.json
 

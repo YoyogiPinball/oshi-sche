@@ -21,7 +21,6 @@ Googleスプレッドシート＆Googleカレンダーに登録してくれる�
   - 全データ保管用シート: 全スケジュールを時系列で保存
   - VTuber別シート: 推しごとに今週分のみ表示
 - 📅 **カレンダー連携**: Googleカレンダーに予定を自動登録
-- 💬 **Discord通知**: 毎朝6時に今日・明日のスケジュールを自動配信
 - 🤖 **完全自動化**: Google Apps Scriptで定期実行
 - 🔄 **重複防止**: 既に処理済みの画像は自動スキップ
 - 👥 **複数VTuber対応**: フォルダ分けで複数のVTuberを管理可能
@@ -41,22 +40,16 @@ Googleスプレッドシート＆Googleカレンダーに登録してくれる�
 - **統一dry-run管理**: `shouldExecute()` 関数で一元管理、コードがシンプルに
 
 #### ドライランモードの細分化
-- **処理別制御**: スプレッドシート、カレンダー、Discord、ファイル移動を個別に制御
-- **柔軟なテスト**: 例えばDiscord通知だけドライランにすることが可能
+- **処理別制御**: スプレッドシート、カレンダー、ファイル移動を個別に制御
+- **柔軟なテスト**: 例えばカレンダー登録だけドライランにすることが可能
 - **未設定時の挙動**: 個別フラグ未設定時は `DRY_RUN` の値を自動適用
-- **4つの個別フラグ**: `DRY_RUN_SPREADSHEET`, `DRY_RUN_CALENDAR`, `DRY_RUN_DISCORD`, `DRY_RUN_FILE_MOVE`
+- **個別フラグ**: `DRY_RUN_SPREADSHEET`, `DRY_RUN_CALENDAR`, `DRY_RUN_FILE_MOVE` など
 
 #### 推しごとシート機能の追加
 - **VTuber別シート自動生成**: 「所属：VTuber名」形式でシートを自動作成
 - **今週分のみ表示**: 各VTuberのシートには今週のスケジュールのみ保持
 - **全データ保管**: 既存の「スケジュール」シートは全データ保管用として継続使用
 - **自動クリーンアップ**: 今週より前のデータは自動的に削除
-
-#### Discord通知機能の追加
-- **毎朝6時自動配信**: 今日・明日のスケジュールをDiscordに通知
-- **VTuber別グループ化**: 推しごとに整理された見やすい通知
-- **配信なし通知**: スケジュールがない日も通知
-- **Webhook連携**: Discord Webhookで簡単セットアップ
 
 #### Gemini 2.5 Flash へのアップグレード
 - **変更内容**: 解析エンジンを Gemini 2.0 Flash から **Gemini 2.5 Flash** に変更
@@ -95,7 +88,7 @@ Googleスプレッドシート＆Googleカレンダーに登録してくれる�
 
 2. 各フォルダ内に、VTuberごとのサブフォルダを作成：
    - フォルダ名の形式: `所属：VTuber名` をベースに、`：` `:` `/` `-` `｜` `・` など複数の区切り文字をサポート
-   - 例: `個人勢：架空ほたる`、`にじさんじ-夢乃かなで`、`ホロライブ/桜庭りの`
+   - 例: `個人勢：架空ほたる`、`スターライブプロダクション-夢乃かなで`、`ムーンクリエイティブ/桜庭りの`
    - 区切りを省略した場合は「所属なし」として扱います
 
 3. フォルダIDをメモ：
@@ -146,7 +139,7 @@ Googleスプレッドシート＆Googleカレンダーに登録してくれる�
 | `SPREADSHEET_ID` | スプレッドシートID | スプシのURL | `1rWFI...` | ✅ |
 | `SHEET_NAME` | シート名 | 任意 | `スケジュール` | ⚪ |
 | `CALENDAR_ID` | カレンダーID | カレンダー設定 | `xxxx@group.calendar.google.com` | ✅ |
-| `DISCORD_WEBHOOK_URL` | Discord Webhook URL | Discord設定 | `https://discord.com/api/webhooks/...` | ⚪ |
+| `DISCORD_WEBHOOK_URL` | Discord Webhook URL（実装予定） | Discord設定 | `https://discord.com/api/webhooks/...` | ⚪ |
 | `DRY_RUN` | ドライランモード（全体） | `true` または `false` | `true` | ⚪ |
 | `DRY_RUN_SPREADSHEET` | スプレッドシート書き込みのドライラン | `true` または `false` | 未設定時は`DRY_RUN`の値 | ⚪ |
 | `DRY_RUN_CALENDAR` | カレンダー登録のドライラン | `true` または `false` | 未設定時は`DRY_RUN`の値 | ⚪ |
@@ -157,15 +150,13 @@ Googleスプレッドシート＆Googleカレンダーに登録してくれる�
 | `TEST_DONE_FOLDER_ID` | テスト用処理済みフォルダID | DriveのURL | テスト環境用 | ⚪ |
 | `TEST_SPREADSHEET_ID` | テスト用スプレッドシートID | スプシのURL | テスト環境用 | ⚪ |
 | `TEST_CALENDAR_ID` | テスト用カレンダーID | カレンダー設定 | テスト環境用 | ⚪ |
-| `TEST_DISCORD_WEBHOOK_URL` | テスト用Discord Webhook URL | Discord設定 | テスト環境用 | ⚪ |
+| `TEST_DISCORD_WEBHOOK_URL` | テスト用Discord Webhook URL（実装予定） | Discord設定 | テスト環境用 | ⚪ |
 
 > **重要**: 初回は必ず `DRY_RUN` を `true` に設定してテストしてください！
 >
 > **ドライランの細分化**: 個別の処理だけドライランにすることもできます。
-> - 例: `DRY_RUN=false`, `DRY_RUN_DISCORD=true` → Discord通知だけスキップ
+> - 例: `DRY_RUN=false`, `DRY_RUN_CALENDAR=true` → カレンダー登録だけスキップ
 > - 未設定の場合は `DRY_RUN` の値が適用されます
->
-> **Discord通知**: `DISCORD_WEBHOOK_URL` を設定すると毎朝6時に今日・明日のスケジュールが配信されます（任意）
 
 ---
 
@@ -199,38 +190,7 @@ Googleスプレッドシート＆Googleカレンダーに登録してくれる�
 
 ---
 
-### ステップ9: Discord通知の設定（任意）
-
-毎朝6時に今日・明日のスケジュールをDiscordに通知したい場合は、以下の設定を行います。
-
-#### Discord Webhookの作成
-
-1. **Discordサーバーで操作**
-   - サーバー設定 → 連携サービス → ウェブフック
-   - 「新しいウェブフック」をクリック
-   - 名前を「推しスケBot」などに設定
-   - 投稿先チャンネルを選択
-   - 「ウェブフックURLをコピー」
-
-2. **GASで設定**
-   - スクリプトプロパティに `DISCORD_WEBHOOK_URL` を追加
-   - 値にコピーしたWebhook URLを貼り付け
-
-3. **トリガー設定**
-   - GASエディタ → トリガー → 追加
-   - 実行する関数: `sendDailyScheduleToDiscord`
-   - イベントソース: 時間主導型
-   - 時間ベースのトリガー: 日タイマー
-   - 時刻: 午前6時～7時
-   - 「保存」をクリック
-
-4. **動作確認**
-   - GASエディタで「実行」→「sendDailyScheduleToDiscord」を選択
-   - Discordチャンネルにメッセージが届くことを確認
-
----
-
-### ステップ10: 本番実行
+### ステップ9: 本番実行
 
 ドライランでの動作確認が完了したら、本番モードに切り替えます。
 
@@ -300,8 +260,6 @@ Gemini AIの解析精度を上げるために、以下のような画像が適�
 [自動] Googleカレンダーに予定登録
     ↓
 [自動] 処理済み画像を「完了フォルダ/所属：VTuber名/」に移動
-    ↓
-[自動] 毎朝6時 → Discordに今日・明日のスケジュール通知（任意）
     ↓
 [手動] ClaudeのMCP連携で「今日の配信予定は？」と聞けば回答
 ```
@@ -397,21 +355,6 @@ Gemini AIの解析精度を上げるために、以下のような画像が適�
 - 自動クリーンアップ: 今週より前のデータは自動削除
 - 用途: 特定の推しのスケジュールを一目で確認
 
-### Q: Discord通知が届かない
-
-**A**: 以下を確認してください：
-- `DISCORD_WEBHOOK_URL` が正しく設定されているか
-- トリガーが `sendDailyScheduleToDiscord` 関数で設定されているか
-- スケジュールデータがスプレッドシートに存在するか
-- GASエディタで手動実行してエラーログを確認
-
-### Q: Discord通知を停止したい
-
-**A**: 以下のいずれかの方法で停止できます：
-- トリガーを削除: GASエディタ → トリガー → 該当トリガーを削除
-- Webhook URLを削除: スクリプトプロパティから `DISCORD_WEBHOOK_URL` を削除
-- ドライラン設定: `DRY_RUN_DISCORD=true` でDiscord通知だけスキップ
-
 ### Q: ドライランモードの細分化とは？
 
 **A**: 処理ごとに個別にドライランを設定できます：
@@ -419,15 +362,15 @@ Gemini AIの解析精度を上げるために、以下のような画像が適�
 **使用例：**
 ```
 DRY_RUN=false（本番モード）
-DRY_RUN_DISCORD=true（Discord通知だけドライラン）
+DRY_RUN_CALENDAR=true（カレンダー登録だけドライラン）
 
-→ スプシ・カレンダー・ファイル移動は実行、Discordだけスキップ
+→ スプシ・ファイル移動は実行、カレンダーだけスキップ
 ```
 
 **個別フラグ：**
 - `DRY_RUN_SPREADSHEET`: スプレッドシート書き込み
 - `DRY_RUN_CALENDAR`: カレンダー登録
-- `DRY_RUN_DISCORD`: Discord通知
+- `DRY_RUN_DISCORD`: Discord通知（実装予定）
 - `DRY_RUN_FILE_MOVE`: ファイル移動
 
 **デフォルト動作：**
@@ -661,4 +604,5 @@ Copyright (c) 2025 YoyogiPinball
 
 ## 🚀 今後の展望
 
+- [ ] Discord通知機能（毎朝6時に今日・明日のスケジュールを自動配信）
 - [ ] WebUIの提供

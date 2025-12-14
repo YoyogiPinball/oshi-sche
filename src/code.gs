@@ -309,8 +309,6 @@ function processNewImages() {
     const folderName = subFolder.getName(); // 例: 「個人勢：架空ほたる」
     const { affiliation, vtuberName } = parseFolderInfo(folderName);
 
-    console.log(`フォルダ確認: ${affiliation} - ${vtuberName}`);
-
     // 処理済みフォルダ内に同名のサブフォルダを取得or作成
     // 理由: 処理済み画像も同じフォルダ構造で管理することで、
     //       どのVTuberの画像が処理済みかを一目で確認できます
@@ -479,14 +477,17 @@ function parseFolderInfo(folderName) {
     text
       .replace(/[：]/g, ':')
       .replace(/[／]/g, '/')
-      .replace(/[－ー―‐–—]/g, '-')
+      .replace(/[－―‐–—]/g, '-')  // ← 長音「ー」を削除（VTuber名を保護）
       .replace(/[｜]/g, '|')
-      .replace(/[・]/g, ':')
+      // .replace(/[・]/g, ':')  ← 削除：VTuber名の中の「・」を保護
       .replace(/[　]/g, ' ')
       .trim();
 
   const normalized = normalize(folderName);
-  const unifiedSeparators = normalized.replace(/[:\/-|]+/g, ':');
+
+  // ハイフンを区切り文字から除外（VTuber名を保護）
+  const unifiedSeparators = normalized.replace(/[:\/|]+/g, ':');
+
   const parts = unifiedSeparators
     .split(':')
     .map(p => p.trim())
@@ -1119,57 +1120,107 @@ function sendDailyScheduleToDiscord() {
 
   // Discord用のメッセージを作成
   const formatDate = (date) => {
+    const year = date.getFullYear();
     const month = date.getMonth() + 1;
     const day = date.getDate();
     const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
     const dayOfWeek = dayNames[date.getDay()];
-    return `${month}/${day}（${dayOfWeek}）`;
+    return `${year}/${month}/${day}（${dayOfWeek}）`;
   };
 
-  const formatSchedulesByVtuber = (schedules) => {
+  // 時刻をフォーマット (HH:MM)
+  const formatTime = (timeValue) => {
+    let date;
+    if (typeof timeValue === 'string') {
+      date = new Date(timeValue);
+    } else if (timeValue instanceof Date) {
+      date = timeValue;
+    } else {
+      // Excelシリアル値の場合
+      date = new Date((timeValue - 25569) * 86400 * 1000);
+    }
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  };
+
+  // 時間帯絵文字を取得
+  const getTimeEmoji = (timeStr) => {
+    const hour = parseInt(timeStr.split(':')[0]);
+    if (hour >= 23 || hour < 5) return '🌌';  // 深夜 (23:00-04:59)
+    if (hour >= 5 && hour < 12) return '🌅';  // 早朝/朝
+    if (hour >= 12 && hour < 17) return '☀️'; // 昼
+    if (hour >= 17 && hour < 19) return '🌆'; // 夕方
+    return '🌙'; // 夜 (19:00-22:59)
+  };
+
+  const formatSchedulesByTime = (schedules) => {
+    // 時刻でソート
+    schedules.sort((a, b) => {
+      const timeA = formatTime(a.time);
+      const timeB = formatTime(b.time);
+      return timeA.localeCompare(timeB);
+    });
+
+    // 時刻ごとにグループ化
     const grouped = {};
     for (const s of schedules) {
-      const key = `${s.affiliation}：${s.vtuber}`;
-      if (!grouped[key]) {
-        grouped[key] = [];
+      const timeStr = formatTime(s.time);
+      if (!grouped[timeStr]) {
+        grouped[timeStr] = [];
       }
-      grouped[key].push(s);
+      grouped[timeStr].push(s);
     }
 
     const lines = [];
-    for (const [vtuberName, items] of Object.entries(grouped)) {
-      lines.push(`\n**${vtuberName}**`);
-      for (const item of items) {
-        const noteText = item.note ? ` ※${item.note}` : '';
-        lines.push(`・${item.time} - ${item.content}${noteText}`);
+    for (const [timeStr, items] of Object.entries(grouped)) {
+      const emoji = getTimeEmoji(timeStr);
+
+      // 時刻ヘッダー（1回だけ表示）
+      lines.push(`${emoji} ${timeStr}`);
+
+      // 同じ時刻の配信を列挙
+      for (let i = 0; i < items.length; i++) {
+        const s = items[i];
+        const vtuberName = `◯${s.affiliation}：${s.vtuber}`;
+        const noteText = s.note ? ` ※${s.note}` : '';
+
+        lines.push(`   ${vtuberName}`);
+        lines.push(`   └ ${s.content}${noteText}`);
+
+        // 同じ時刻内の配信間に空行を追加（最後の配信以外）
+        if (i < items.length - 1) {
+          lines.push('');
+        }
       }
+
+      // 時刻グループ間の空行
+      lines.push('');
     }
 
     return lines.join('\n');
   };
 
-  let message = `📅 **本日・明日の配信予定**（${formatDate(today)}）\n`;
+  let message = `📅 **本日の配信スケジュール** ${formatDate(today)}\n`;
   message += `━━━━━━━━━━━━━━━━━━\n`;
 
   // 今日のスケジュール
   if (todaySchedules.length > 0) {
-    message += `**【本日 ${formatDate(today)}】**`;
-    message += formatSchedulesByVtuber(todaySchedules);
-    message += `\n\n`;
+    message += formatSchedulesByTime(todaySchedules);
+    message += `\n`;
   } else {
-    message += `**【本日 ${formatDate(today)}】**\n`;
     message += `本日の配信予定はありません\n\n`;
   }
 
   message += `━━━━━━━━━━━━━━━━━━\n`;
+  message += `📅 **翌日の配信スケジュール** ${formatDate(tomorrow)}\n`;
+  message += `━━━━━━━━━━━━━━━━━━\n`;
 
   // 明日のスケジュール
   if (tomorrowSchedules.length > 0) {
-    message += `**【明日 ${formatDate(tomorrow)}】**`;
-    message += formatSchedulesByVtuber(tomorrowSchedules);
-    message += `\n\n`;
+    message += formatSchedulesByTime(tomorrowSchedules);
+    message += `\n`;
   } else {
-    message += `**【明日 ${formatDate(tomorrow)}】**\n`;
     message += `明日の配信予定はありません\n\n`;
   }
 

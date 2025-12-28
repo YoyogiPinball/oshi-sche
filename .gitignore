@@ -3,6 +3,7 @@ Archive/
 
 # 作業用資料・引き継ぎドキュメント（個人用、コミット対象外）
 docs/
+newproduct_ideanote.md
 
 # Claude設定（ローカルのみ、コミット対象外）
 .claude/

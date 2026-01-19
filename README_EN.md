@@ -16,7 +16,7 @@ Perfect for fans who follow multiple VTubers and find it challenging to keep tra
 
 - 📸 **Automatic Image Analysis**: Analyze schedule images using Gemini 2.0 Flash API
 - 📊 **Spreadsheet Management**: Automatic writing to Google Sheets
-- 📅 **Calendar Integration**: Automatic event registration to Google Calendar
+- 📅 **Calendar Integration**: Automatic event registration to Google Calendar (1-hour time slot)
 - 🤖 **Full Automation**: Periodic execution with Google Apps Script
 - 🔄 **Duplicate Prevention**: Automatically skip already processed images
 - 👥 **Multi-VTuber Support**: Manage multiple VTubers with folder organization

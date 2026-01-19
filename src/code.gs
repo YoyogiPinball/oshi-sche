@@ -965,9 +965,9 @@ function addSchedulesToCalendar(schedules, config) {
 
       // 開始時刻と終了時刻を作成
       // 理由: Googleカレンダーのイベントには開始・終了時刻が必要なため、
-      //       終了時刻は開始2時間後に設定します（配信の平均的な長さ）
+      //       終了時刻は開始1時間後に設定します（配信の平均的な長さ）
       const startTime = new Date(year, month, day, hour, minute);
-      const endTime = new Date(year, month, day, hour + 2, minute); // 2時間枠
+      const endTime = new Date(year, month, day, hour + 1, minute); // 1時間枠
 
       // イベントタイトル
       const title = `【${s.vtuber}】${s.content}`;
@@ -1283,7 +1283,7 @@ function main() {
 
   try {
     const count = processNewImages();
-    console.log(`テスト完了: ${count}件処理しました`);
+    console.log(`処理完了: ${count}件処理しました`);
   } catch (error) {
     console.error('テスト実行中にエラーが発生しました:');
     console.error(error.message);
